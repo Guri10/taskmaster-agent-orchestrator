@@ -2,7 +2,7 @@
 TaskMaster Agent main entrypoint.
 - Accepts high-level instructions
 - Uses LangChain + AutoGen for planning (stub)
-- Calls Alpha Vantage API
+- Fetches data using yfinance
 - Persists to SQLite
 - Prints result as JSON
 """
@@ -10,14 +10,13 @@ import os
 import sys
 import json
 import sqlite3
-import requests
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
+import yfinance as yf
 
 # Load environment variables
 load_dotenv()
-ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 DB_PATH = os.getenv("DB_PATH", "taskmaster.db")
 
 # SQLite schema
@@ -34,29 +33,19 @@ CREATE TABLE IF NOT EXISTS prices (
 );
 """
 
-def fetch_alpha_vantage(ticker):
-    url = f"https://www.alphavantage.co/query"
-    params = {
-        "function": "TIME_SERIES_DAILY_ADJUSTED",
-        "symbol": ticker,
-        "apikey": ALPHA_VANTAGE_API_KEY,
-        "outputsize": "compact"
-    }
-    resp = requests.get(url, params=params)
-    resp.raise_for_status()
-    data = resp.json()
-    if "Time Series (Daily)" not in data:
-        raise Exception(f"Alpha Vantage error: {data}")
-    df = pd.DataFrame.from_dict(data["Time Series (Daily)"], orient="index")
+def fetch_yfinance(ticker):
+    df = yf.download(ticker, period="1mo", interval="1d", auto_adjust=False)
+    if df.empty:
+        raise Exception(f"No data found for ticker {ticker}")
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
     df = df.rename(columns={
-        '1. open': 'open',
-        '2. high': 'high',
-        '3. low': 'low',
-        '4. close': 'close',
+        'Open': 'open',
+        'High': 'high',
+        'Low': 'low',
+        'Close': 'close',
     })
-    df = df[["open", "high", "low", "close"]].astype(float)
-    df.index = pd.to_datetime(df.index)
-    df = df.sort_index()
+    df = df[["open", "high", "low", "close"]]
     return df
 
 def compute_sma20(df):
@@ -67,36 +56,48 @@ def store_to_sqlite(df, ticker, db_path=DB_PATH):
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute(CREATE_TABLE_SQL)
+    def to_float(val):
+        return float(val.item()) if hasattr(val, "item") else float(val)
     for date, row in df.iterrows():
+        if "sma20" not in row:
+            print(f"DEBUG: 'sma20' not in row. Row keys: {list(row.keys())}. Row: {row}")
+            raise Exception(f"'sma20' column missing in row for ticker {ticker} on {date}")
         if pd.isna(row["sma20"]):
             continue
         c.execute(
             "INSERT OR REPLACE INTO prices (date, ticker, open, high, low, close, sma20) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (date.strftime("%Y-%m-%d"), ticker, row["open"], row["high"], row["low"], row["close"], row["sma20"])
+            (str(date)[:10], ticker, to_float(row["open"]), to_float(row["high"]), to_float(row["low"]), to_float(row["close"]), to_float(row["sma20"]))
         )
     conn.commit()
     conn.close()
 
 def agent(instruction):
     # Simple planner: extract tickers from instruction
-    # e.g., "fetch AAPL, MSFT, GOOGL prices; compute 20-day SMA; store in DB"
     import re
     tickers = re.findall(r"[A-Z]{1,5}", instruction)
     results = []
     for ticker in tickers:
-        df = fetch_alpha_vantage(ticker)
+        df = fetch_yfinance(ticker)
         df = compute_sma20(df)
         store_to_sqlite(df, ticker)
-        latest = df.dropna().iloc[-1]
-        results.append({
-            "ticker": ticker,
-            "date": latest.name.strftime("%Y-%m-%d"),
-            "open": latest["open"],
-            "high": latest["high"],
-            "low": latest["low"],
-            "close": latest["close"],
-            "sma20": latest["sma20"]
-        })
+        clean_df = df.dropna(subset=["sma20"])
+        if clean_df.empty:
+            raise Exception(f"No rows with valid SMA for ticker {ticker}")
+        if not all(col in clean_df.columns for col in ["open", "high", "low", "close", "sma20"]):
+            raise Exception(f"Missing expected columns in clean_df: {clean_df.columns}")
+        latest = clean_df.iloc[-1]
+        try:
+            results.append({
+                "ticker": ticker,
+                "date": latest.name.strftime("%Y-%m-%d"),
+                "open": latest["open"],
+                "high": latest["high"],
+                "low": latest["low"],
+                "close": latest["close"],
+                "sma20": latest["sma20"]
+            })
+        except Exception as e:
+            raise
     return results
 
 def main():
