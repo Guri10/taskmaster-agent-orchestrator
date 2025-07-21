@@ -1,0 +1,9 @@
+# Core dependencies for TaskMaster Agent
+langchain
+chromadb
+llama-cpp-python
+# AutoGen and planning
+pyautogen
+# For SQLite and API calls
+requests
+# Add more as needed
