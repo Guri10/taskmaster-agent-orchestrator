@@ -1,10 +1,9 @@
 # Core dependencies for TaskMaster Agent
-langchain
-chromadb
-llama-cpp-python
-pyautogen
-requests
-pandas
-python-dotenv
-# For SQLite
-sqlite3; python_version >= '3.0'
+langchain==0.1.14
+# chromadb==0.4.24
+# llama-cpp-python
+pyautogen==0.10.0
+requests==2.31.0
+pandas==2.2.2
+python-dotenv==1.0.1
+yfinance==0.2.36

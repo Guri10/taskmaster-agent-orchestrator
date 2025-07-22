@@ -28,7 +28,7 @@ app.MapPost("/task", async (HttpContext context) =>
         var psi = new ProcessStartInfo
         {
             FileName = "python3",
-            WorkingDirectory = Path.Combine(Directory.GetCurrentDirectory(), "../../.."),
+            WorkingDirectory = "/app",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -43,11 +43,30 @@ app.MapPost("/task", async (HttpContext context) =>
         await process.WaitForExitAsync();
         if (process.ExitCode != 0)
         {
+            Console.WriteLine($"DEBUG: Process exit code != 0. Error: {error}. Output: {output}");
             context.Response.StatusCode = 500;
             agentErrorsTotal++;
             agentLatencies.Add(sw.Elapsed.TotalSeconds);
             await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = error.Trim() }));
             return;
+        }
+        // Check if output is an error JSON
+        try
+        {
+            var jsonDoc = JsonDocument.Parse(output);
+            if (jsonDoc.RootElement.ValueKind == JsonValueKind.Object && jsonDoc.RootElement.TryGetProperty("error", out _))
+            {
+                Console.WriteLine($"DEBUG: Output is error JSON object: {output}");
+                context.Response.StatusCode = 500;
+                agentErrorsTotal++;
+                agentLatencies.Add(sw.Elapsed.TotalSeconds);
+                await context.Response.WriteAsync(output);
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"DEBUG: Exception parsing output as JSON: {ex.Message}. Output: {output}");
         }
         context.Response.ContentType = "application/json";
         await context.Response.WriteAsync(output);
@@ -55,6 +74,7 @@ app.MapPost("/task", async (HttpContext context) =>
     }
     catch (Exception ex)
     {
+        Console.WriteLine($"DEBUG: Exception in /task handler: {ex.Message}");
         context.Response.StatusCode = 500;
         agentErrorsTotal++;
         await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));

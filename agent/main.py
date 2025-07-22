@@ -14,9 +14,9 @@ import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
 import yfinance as yf
+import requests
 
-# Load environment variables
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 DB_PATH = os.getenv("DB_PATH", "taskmaster.db")
 
 # SQLite schema
@@ -33,19 +33,31 @@ CREATE TABLE IF NOT EXISTS prices (
 );
 """
 
-def fetch_yfinance(ticker):
-    df = yf.download(ticker, period="1mo", interval="1d", auto_adjust=False)
-    if df.empty:
-        raise Exception(f"No data found for ticker {ticker}")
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+def fetch_twelvedata(ticker):
+    api_key = os.getenv("TWELVE_DATA_API_KEY")
+    print(f"DEBUG: API KEY = '{api_key}'", flush=True) 
+    url = f"https://api.twelvedata.com/time_series"
+    params = {
+        "symbol": ticker,
+        "interval": "1day",
+        "outputsize": 30,
+        "apikey": api_key
+    }
+    resp = requests.get(url, params=params)
+    data = resp.json()
+    if "values" not in data:
+        raise Exception(f"Twelve Data error: {data}")
+    df = pd.DataFrame(data["values"])
+    df["datetime"] = pd.to_datetime(df["datetime"])
     df = df.rename(columns={
-        'Open': 'open',
-        'High': 'high',
-        'Low': 'low',
-        'Close': 'close',
+        "open": "open",
+        "high": "high",
+        "low": "low",
+        "close": "close"
     })
-    df = df[["open", "high", "low", "close"]]
+    df = df[["datetime", "open", "high", "low", "close"]].astype({"open": float, "high": float, "low": float, "close": float})
+    df = df.sort_values("datetime")
+    df = df.set_index("datetime")
     return df
 
 def compute_sma20(df):
@@ -77,7 +89,7 @@ def agent(instruction):
     tickers = re.findall(r"[A-Z]{1,5}", instruction)
     results = []
     for ticker in tickers:
-        df = fetch_yfinance(ticker)
+        df = fetch_twelvedata(ticker)
         df = compute_sma20(df)
         store_to_sqlite(df, ticker)
         clean_df = df.dropna(subset=["sma20"])

@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "LpcUXBlFKb0=",
+  "success": true,
+  "projectFilePath": "/Users/atharvagurav/Documents/Agent/src/TaskMaster.Api/TaskMaster.Api/TaskMaster.Api.csproj",
+  "expectedPackageFiles": [
+    "/Users/atharvagurav/.nuget/packages/microsoft.netcore.app.ref/8.0.18/microsoft.netcore.app.ref.8.0.18.nupkg.sha512",
+    "/Users/atharvagurav/.nuget/packages/microsoft.aspnetcore.app.ref/8.0.18/microsoft.aspnetcore.app.ref.8.0.18.nupkg.sha512",
+    "/Users/atharvagurav/.nuget/packages/microsoft.netcore.app.host.osx-arm64/8.0.18/microsoft.netcore.app.host.osx-arm64.8.0.18.nupkg.sha512"
+  ],
+  "logs": []
+}
